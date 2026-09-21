@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Research Desk Dev Open
+Comment=Open active Research Desk services in browser
+Exec=bash -c '$(dirname "%k")/dev-open.sh'
+Icon=internet-web-browser
+Terminal=true
+Categories=Development;

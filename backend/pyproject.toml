@@ -1,0 +1,127 @@
+[project]
+name = "research-desk-api"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "structlog>=24.4",
+    "httpx>=0.27",
+    # Supabase JWT verification. [crypto] pulls the RSA/EC backend needed for
+    # asymmetric tokens; PyJWKClient handles JWKS fetch, cache and kid lookup.
+    "pyjwt[crypto]>=2.9",
+    # data
+    "sqlalchemy[asyncio]>=2.0",
+    "asyncpg>=0.30",
+    # LangGraph's Postgres checkpointer speaks psycopg3, NOT asyncpg, so the
+    # app ends up with two Postgres drivers: asyncpg for SQLAlchemy and psycopg
+    # for the checkpointer. Same database, different connection pools.
+    "psycopg[binary,pool]>=3.2",
+    "qdrant-client>=1.12",
+    # ai
+    "langgraph>=0.2.60",
+    "langgraph-checkpoint-postgres>=2.0.2",
+    "langchain-core>=0.3.25",
+    "langchain-google-genai>=2.0.7",
+    "google-generativeai>=0.8.3",
+    # ingestion
+    "pypdf>=5.1",
+    "python-multipart>=0.0.17",
+    # Reads fixtures/golden.yaml. A main dependency rather than a dev one
+    # because the /eval endpoint serves the suite to the Lab UI at runtime.
+    "pyyaml>=6.0",
+    # observability
+    #
+    # A MAIN dependency, not an extra. Tracing is a production concern -- the
+    # whole point is that it runs where the users are -- and it is inert
+    # without keys, so shipping it costs nothing when unconfigured.
+    "langfuse>=2.53",
+    # Required by langfuse.langchain.CallbackHandler, which imports the
+    # `langchain` meta-package rather than langchain-core. Without it the
+    # handler raises ModuleNotFoundError on import and the whole graph goes
+    # untraced -- which the seam degrades past silently, so it is worth naming.
+    "langchain>=0.3",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.8",
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+]
+# Local embedding fallback. Kept optional because it pulls onnxruntime (~200MB);
+# install with `uv sync --extra local-embeddings` if EMBEDDING_PROVIDER=fastembed.
+[project.optional-dependencies]
+local-embeddings = ["fastembed>=0.4"]
+# Cloudflare R2, which is S3-compatible. An EXTRA rather than a core
+# dependency: the default storage backend is a local directory, so a checkout
+# with no cloud account still stores and serves its own files.
+storage = ["boto3>=1.35"]
+# Dimensional speech-emotion analysis. A LARGE extra -- torch alone is over a
+# gigabyte -- and deliberately not installed by default: the feature is off
+# unless EMOTION_ANALYSIS is set, and the model does not fit Render's free
+# tier anyway. See `services/emotion.py`.
+emotion = ["torch>=2.4", "transformers>=4.44"]
+# NVIDIA's hosted NeMo speech models (Parakeet, Canary, Nemotron streaming).
+#
+# A gRPC CLIENT, and that is not a preference. Those functions are reachable
+# only over gRPC: posting to the HTTP invocation path returns "Inference
+# connection error" for every body shape, which is the NVCF gateway failing to
+# reach a worker that does not speak HTTP. Measured against
+# ai-parakeet-1_1b-rnnt-multilingual-asr.
+#
+# Optional for the same reason `eval` is: nothing here is needed to serve a
+# request, and grpcio is a large wheel. Install with `uv sync --extra speech`.
+speech = ["nvidia-riva-client>=2.15"]
+# RAG evaluation via the standard library. This is the ONLY generation-side
+# judge -- its definitions are the ones published numbers are reported against,
+# which is the whole reason for taking the dependency.
+#
+# Optional because it pulls pandas, datasets and pyarrow, and none of it is
+# needed to serve a request -- keeping it out of the default set is what holds
+# the prod image at 177MB. The DEV image installs it (see Dockerfile); prod
+# cannot judge anything, which is correct.
+#   uv sync --extra eval
+eval = [
+    # Upper bound because 0.4.x already DEPRECATES everything judge.py imports:
+    # `ragas.metrics.Faithfulness` and friends resolve through a __getattr__
+    # shim warning "will be removed in v1.0. Please use
+    # 'ragas.metrics.collections' instead", and `LangchainLLMWrapper` likewise
+    # points at `llm_factory`. Without the bound, a routine relock could pull
+    # v1.0 and delete the judge with no commit touching this project.
+    "ragas>=0.2,<1.0",
+    # RAGAS accepts a judge through LangChain wrappers. This was already a
+    # declared dependency and never imported; using it here finally makes it
+    # real.
+    "langchain-google-genai>=2.0.7",
+    # Pinned below 0.4 because ragas 0.4.3 UNCONDITIONALLY imports
+    # `langchain_community.chat_models.vertexai.ChatVertexAI` in
+    # ragas/llms/base.py, and langchain-community 0.4.x removed that module
+    # (VertexAI moved to langchain-google-vertexai). With 0.4.x installed,
+    # `import ragas` itself raises ModuleNotFoundError -- so this is not
+    # optional tidiness, it is what makes the extra importable at all.
+    "langchain-community<0.4",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC"]
+# B008 flags function calls in argument defaults, but `= File(...)` and
+# `= Query(...)` ARE the documented FastAPI idiom -- that's how dependencies
+# and validation are declared. Not a bug here.
+ignore = ["B008"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+# Where to look, so a bare `pytest` finds the suite.
+testpaths = ["tests"]
+# Without this, `import app...` fails inside tests. `tests/` has no
+# __init__.py, so pytest puts /app/tests on sys.path rather than /app --
+# and the package under test is at /app/app. Adding the rootdir fixes it
+# without needing an __init__.py or an editable install.
+pythonpath = ["."]

@@ -1,0 +1,1401 @@
+@import "tailwindcss";
+@import "./theme.css";
+
+/* Roboto is imported from layout.tsx, not here: Tailwind v4's PostCSS plugin
+   handles @import itself and cannot resolve a bare package specifier like
+   "@fontsource/roboto/400.css". A JS import lets webpack resolve it. */
+
+/* ===========================================================================
+   Material Design 3.
+
+   Colour roles are generated from a source colour by scripts/gen-theme.mjs and
+   live in theme.css. Everything below is the rest of the M3 system: type
+   scale, shape scale, elevation, state layers, motion.
+
+   The one deliberate departure from the spec: the navigation drawer stays
+   navy. Stock M3 makes it a light surface, but the dark chrome is the app's
+   identity, so it gets its own fixed --md-nav-* roles.
+   =========================================================================== */
+
+:root {
+  /* --- shape scale ------------------------------------------------------- */
+  --md-shape-none: 0;
+  --md-shape-xs: 4px;
+  --md-shape-sm: 8px;
+  --md-shape-md: 12px;
+  --md-shape-lg: 16px;
+  --md-shape-xl: 28px;
+  --md-shape-full: 9999px;
+
+  /* --- state layer opacities -------------------------------------------- */
+  /* The mechanism that makes Material feel tactile: an overlay of the
+     matching on-colour at a fixed opacity per state. */
+  --md-state-hover: 0.08;
+  --md-state-focus: 0.10;
+  --md-state-press: 0.10;
+  --md-state-drag: 0.16;
+
+  /* --- motion ----------------------------------------------------------- */
+  --md-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --md-ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
+  --md-ease-emphasized-decelerate: cubic-bezier(0.05, 0.7, 0.1, 1);
+  --md-ease-emphasized-accelerate: cubic-bezier(0.3, 0, 0.8, 0.15);
+  --md-dur-short: 150ms;
+  --md-dur-medium: 300ms;
+  --md-dur-long: 450ms;
+  /* The press ripple, as ONE number for the whole app.
+     Its own token rather than --md-dur-long: that one also drives layout
+     transitions, so tuning the ripple through it would move the drawer and
+     the rail every time -- and this gets tuned by feel. See .md-ripple-span.
+
+     CURRENTLY DORMANT. Ripples are switched off at RIPPLE_ENABLED in md.tsx,
+     so changing this value has no visible effect until that is flipped back.
+     Kept here, and kept accurate, because the switch is meant to be reversible
+     -- and the first thing anyone re-enabling it will want to adjust is this
+     number. */
+  --md-ripple-duration: 320ms;
+
+  /* --- elevation --------------------------------------------------------
+     M3 elevation is a shadow PLUS a surface tint (primary blended into the
+     surface). The tint is what stops dark-mode cards from disappearing, since
+     shadows are nearly invisible on dark surfaces. */
+  --md-elev-1: 0 1px 2px rgba(0, 0, 0, 0.30), 0 1px 3px 1px rgba(0, 0, 0, 0.15);
+  --md-elev-2: 0 1px 2px rgba(0, 0, 0, 0.30), 0 2px 6px 2px rgba(0, 0, 0, 0.15);
+  --md-elev-3: 0 4px 8px 3px rgba(0, 0, 0, 0.15), 0 1px 3px rgba(0, 0, 0, 0.30);
+  --md-elev-4: 0 6px 10px 4px rgba(0, 0, 0, 0.15), 0 2px 3px rgba(0, 0, 0, 0.30);
+  --md-elev-5: 0 8px 12px 6px rgba(0, 0, 0, 0.15), 0 4px 4px rgba(0, 0, 0, 0.30);
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    /* Shadows read as heavier on dark surfaces; M3 leans on tint instead. */
+    --md-elev-1: 0 1px 3px rgba(0, 0, 0, 0.55);
+    --md-elev-2: 0 2px 6px rgba(0, 0, 0, 0.55);
+    --md-elev-3: 0 4px 10px rgba(0, 0, 0, 0.55);
+  }
+}
+
+/* Must live in @layer base. Unlayered CSS outranks every layer regardless of
+   specificity, so as a bare `*` rule this silently defeated the border-color
+   of every component -- the focused text field kept the default outline colour
+   instead of turning primary, and hover states on chips and outlined buttons
+   never changed. Layered, `@layer components` wins as intended. */
+@layer base {
+  * {
+    border-color: var(--md-outline-variant);
+  }
+
+  /* IF IT CAN BE CLICKED, IT SHOWS A POINTER.
+
+     Tailwind v4 dropped the `button { cursor: pointer }` reset that v3 shipped,
+     so a bare <button> now gets the arrow cursor. Every component class here
+     had been putting `cursor: pointer` back by hand -- .md-nav-item,
+     .md-card-interactive, .md-segmented > button, .md-fab -- which works right
+     up until something is built from `.md-state` and utilities alone, as the
+     app switcher and the clarify options were. Both shipped with the wrong
+     cursor and neither was obviously broken to look at.
+
+     So it is restored ONCE, here, and no component has to remember it.
+
+     In @layer base, not unlayered: unlayered CSS outranks every layer, so this
+     would otherwise beat `cursor: text` on an editable control or any
+     deliberate override in @layer components. Layered, components still win --
+     the same trap the border-color rule above documents.
+
+     The role list is every INTERACTIVE role this codebase actually uses
+     (checked with grep, not guessed). Non-interactive ones -- status,
+     progressbar, presentation, dialog, tablist -- are deliberately absent:
+     they are containers or announcements, and a pointer over them would
+     promise a click that does nothing. */
+  button,
+  select,
+  summary,
+  [role="button"],
+  [role="link"],
+  [role="tab"],
+  [role="option"],
+  [role="checkbox"],
+  [role="switch"],
+  label[for],
+  a[href] {
+    cursor: pointer;
+  }
+
+  /* A disabled control is not clickable, and saying so with the cursor is the
+     cheapest possible explanation for why nothing happened. */
+  button:disabled,
+  select:disabled,
+  [aria-disabled="true"] {
+    cursor: not-allowed;
+  }
+}
+
+/* The sidebar and rail are fixed elements parked off-canvas with translate-x.
+   A transformed fixed element still extends the scrollable area, which caused
+   a horizontal scrollbar and let the layout drift sideways.
+
+   `clip`, NOT `hidden`. They look identical here but differ in one way that
+   matters: `overflow: hidden` makes the element a SCROLL CONTAINER, and a
+   scroll container on html/body silently breaks `position: sticky` in every
+   descendant -- the sticky element resolves against body instead of the
+   viewport, so it scrolls away like static content. That is why the chat
+   header and composer were declared sticky and did not stick.
+
+   `overflow-x: clip` crops the overflow without creating a scroll container,
+   so it stops the sideways drift AND leaves sticky working. */
+html,
+body {
+  overflow-x: clip;
+  max-width: 100%;
+}
+
+body {
+  background: var(--md-surface-container-low);
+  color: var(--md-on-surface);
+  font-family: Roboto, system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Darker than the container tone it used to be.
+   primary/on-primary rather than a hand-picked darker colour: the two are a
+   guaranteed-contrasting M3 pair, so the selected text stays legible in every
+   theme and accent instead of needing a check per palette. */
+::selection {
+  background: var(--md-primary);
+  color: var(--md-on-primary);
+}
+
+/* M3 focus indicator: a 3px ring in the primary colour, keyboard only.
+
+   NO `border-radius` here, and that omission is load-bearing.
+
+   This rule used to also set `border-radius: var(--md-shape-xs)`, presumably so
+   the ring looked slightly rounded on square elements. But it is UNLAYERED, so
+   it outranks every `@layer components` rule regardless of specificity -- the
+   same trap documented above for `border-color` -- and a bare `:focus-visible`
+   matches everything. The effect was that every rounded component SQUARED OFF
+   the moment it took focus: the chat composer's 28px pill collapsed to 4px,
+   and so did buttons, chips and FABs.
+
+   It was also invisible on the composer specifically, because the input opt-out
+   below kills the ring but could never undo the radius -- so that field lost
+   its shape and gained nothing. Measured: 28px unfocused, 4px focused.
+
+   An `outline` already follows the element's own border-radius automatically,
+   which is exactly the behaviour wanted. Nothing needs to set it here. */
+:focus-visible {
+  outline: 3px solid var(--md-primary);
+  outline-offset: 2px;
+}
+
+/* Text inputs opt out. They already signal focus in their own way -- an M3
+   text field draws a primary inset ring -- so this one is redundant and reads
+   as a heavy blue box. Higher specificity than the rule above, which is why
+   Tailwind's `outline-none` utility could not win: utilities live in a
+   lower-priority layer than this unlayered CSS. */
+input:focus-visible,
+textarea:focus-visible {
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@layer components {
+  /* =========================================================================
+     Type scale. M3 defines 15 roles; these are the ones this app uses.
+     ========================================================================= */
+  .md-display-small { font-size: 2.25rem; line-height: 2.75rem; font-weight: 400; letter-spacing: 0; }
+  .md-headline-small { font-size: 1.5rem; line-height: 2rem; font-weight: 400; letter-spacing: 0; }
+  .md-title-large { font-size: 1.375rem; line-height: 1.75rem; font-weight: 400; letter-spacing: 0; }
+  .md-title-medium { font-size: 1rem; line-height: 1.5rem; font-weight: 500; letter-spacing: 0.009375em; }
+  .md-title-small { font-size: 0.875rem; line-height: 1.25rem; font-weight: 500; letter-spacing: 0.00714em; }
+  .md-body-large { font-size: 1rem; line-height: 1.5rem; font-weight: 400; letter-spacing: 0.03125em; }
+  .md-body-medium { font-size: 0.875rem; line-height: 1.25rem; font-weight: 400; letter-spacing: 0.01786em; }
+  .md-body-small { font-size: 0.75rem; line-height: 1rem; font-weight: 400; letter-spacing: 0.03333em; }
+  .md-label-large { font-size: 0.875rem; line-height: 1.25rem; font-weight: 500; letter-spacing: 0.00714em; }
+  .md-label-medium { font-size: 0.75rem; line-height: 1rem; font-weight: 500; letter-spacing: 0.04167em; }
+  .md-label-small { font-size: 0.6875rem; line-height: 1rem; font-weight: 500; letter-spacing: 0.04545em; }
+
+  /* =========================================================================
+     State layer. Applied via ::before so it tints without touching content.
+     Any interactive surface gets `.md-state` plus a --md-state-color.
+     ========================================================================= */
+  .md-state {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+  }
+  .md-state::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: var(--md-state-color, var(--md-on-surface));
+    opacity: 0;
+    transition: opacity var(--md-dur-short) var(--md-ease-standard);
+    pointer-events: none;
+    z-index: 0;
+  }
+  .md-state:hover:not(:disabled)::before { opacity: var(--md-state-hover); }
+  .md-state:focus-visible:not(:disabled)::before { opacity: var(--md-state-focus); }
+  .md-state:active:not(:disabled)::before { opacity: var(--md-state-press); }
+  .md-state > * { position: relative; z-index: 1; }
+
+  /* =========================================================================
+     Buttons. M3 buttons are PILLS - 40px tall, fully rounded. Five variants.
+     ========================================================================= */
+  .md-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    height: 40px;
+    padding: 0 1.5rem;
+    border: none;
+    border-radius: var(--md-shape-full);
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+    transition:
+      background-color var(--md-dur-short) var(--md-ease-standard),
+      box-shadow var(--md-dur-short) var(--md-ease-standard);
+    /* .md-label-large */
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    font-weight: 500;
+    letter-spacing: 0.00714em;
+  }
+  .md-btn:disabled {
+    cursor: not-allowed;
+    background: color-mix(in srgb, var(--md-on-surface) 12%, transparent);
+    color: color-mix(in srgb, var(--md-on-surface) 38%, transparent);
+    box-shadow: none;
+  }
+  /* Icon-leading buttons get tighter leading padding per spec. */
+  .md-btn:has(> svg:first-child) { padding-left: 1rem; }
+
+  /* No hover shadows on any variant. The state layer (a translucent overlay
+     via ::before) already signals hover, and it does so without the button
+     appearing to lift off a page that is otherwise completely flat. */
+  .md-btn-filled {
+    background: var(--md-primary);
+    color: var(--md-on-primary);
+    --md-state-color: var(--md-on-primary);
+  }
+
+  /* Tonal is now OUTLINED-neutral rather than a blue-grey fill. A tonal
+     button next to a filled one gave two coloured blocks of near-equal
+     weight, so "which is the primary action" had to be worked out rather
+     than seen. Outlined recedes; filled stays the answer. */
+  .md-btn-tonal {
+    background: transparent;
+    color: var(--md-on-surface);
+    border: 1px solid var(--md-outline-variant);
+    --md-state-color: var(--md-on-surface);
+  }
+  .md-btn-tonal:hover:not(:disabled) { border-color: var(--md-outline); }
+
+  .md-btn-outlined {
+    background: transparent;
+    color: var(--md-primary);
+    border: 1px solid var(--md-outline-variant);
+    --md-state-color: var(--md-primary);
+  }
+
+  .md-btn-text {
+    background: transparent;
+    color: var(--md-primary);
+    padding: 0 0.75rem;
+    --md-state-color: var(--md-primary);
+  }
+
+  .md-btn-error {
+    background: var(--md-error);
+    color: var(--md-on-error);
+    --md-state-color: var(--md-on-error);
+  }
+  .md-btn-error-text {
+    background: transparent;
+    color: var(--md-error);
+    padding: 0 0.75rem;
+    --md-state-color: var(--md-error);
+  }
+
+  /* Small variant for dense rows. Not in the spec, but the alternative is
+     40px controls inside 32px list rows. */
+  .md-btn-sm {
+    height: 32px;
+    padding: 0 0.875rem;
+    font-size: 0.75rem;
+    letter-spacing: 0.04167em;
+  }
+  .md-btn-sm:has(> svg:first-child) { padding-left: 0.625rem; }
+
+  /* =========================================================================
+     Icon button. 40px circular target, standard / filled / tonal.
+     ========================================================================= */
+  .md-icon-btn {
+    display: inline-grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    border: none;
+    border-radius: var(--md-shape-full);
+    background: transparent;
+    color: var(--md-on-surface-variant);
+    cursor: pointer;
+    --md-state-color: var(--md-on-surface-variant);
+    transition: background-color var(--md-dur-short) var(--md-ease-standard);
+  }
+  .md-icon-btn:disabled {
+    cursor: not-allowed;
+    color: color-mix(in srgb, var(--md-on-surface) 38%, transparent);
+  }
+  .md-icon-btn-sm { width: 32px; height: 32px; }
+  .md-icon-btn-filled {
+    background: var(--md-primary);
+    color: var(--md-on-primary);
+    --md-state-color: var(--md-on-primary);
+  }
+  .md-icon-btn-error { color: var(--md-error); --md-state-color: var(--md-error); }
+
+  /* =========================================================================
+     FAB - used for the composer's send action.
+     ========================================================================= */
+  /* Flat and filled with the primary colour, not a shadowed tonal block.
+     The send button is the one unambiguous action on the screen, so it earns
+     colour -- but a floating elevation-3 slab beside a flat composer looked
+     like it belonged to a different app. */
+  .md-fab {
+    display: inline-grid;
+    place-items: center;
+    width: 56px;
+    height: 56px;
+    border: none;
+    border-radius: var(--md-shape-lg);
+    background: var(--md-primary);
+    color: var(--md-on-primary);
+    cursor: pointer;
+    --md-state-color: var(--md-on-primary);
+    transition: background-color var(--md-dur-short) var(--md-ease-standard);
+  }
+  .md-fab:disabled {
+    cursor: not-allowed;
+    background: color-mix(in srgb, var(--md-on-surface) 12%, transparent);
+    color: color-mix(in srgb, var(--md-on-surface) 38%, transparent);
+  }
+  .md-fab-sm { width: 40px; height: 40px; border-radius: var(--md-shape-md); }
+
+  /* =========================================================================
+     Cards.
+
+     ONE look: a white sheet with a hairline outline. The three M3 variants
+     (elevated / filled / outlined) are kept as class names so call sites do
+     not all have to change, but they now render identically -- which is the
+     point rather than an oversight.
+
+     Why flat. M3's elevated and filled variants distinguish themselves with
+     shadow and tonal fill, and stacked up across a screen that reads as
+     clutter: every panel competing for depth, none of it meaning anything.
+     A hairline border says "this is a distinct region" for a fraction of the
+     visual weight, and it says it at exactly the same strength everywhere,
+     so the eye can spend its attention on content instead of chrome.
+
+     Depth is now reserved for things that genuinely float ABOVE the page --
+     dialogs, the command palette, the source panel. When everything is flat,
+     a shadow means something again.
+     ========================================================================= */
+  .md-card {
+    border-radius: var(--md-shape-md);
+    background: var(--md-surface);
+    color: var(--md-on-surface);
+    border: 1px solid var(--md-outline-variant);
+  }
+  .md-card-elevated,
+  .md-card-filled,
+  .md-card-outlined {
+    background: var(--md-surface);
+    border: 1px solid var(--md-outline-variant);
+    box-shadow: none;
+  }
+  .md-card-interactive {
+    cursor: pointer;
+    --md-state-color: var(--md-on-surface);
+    transition: border-color var(--md-dur-short) var(--md-ease-standard);
+  }
+  /* Hover darkens the outline instead of lifting the card. Same affordance,
+     no layout-shifting shadow, and it works on a flat page. */
+  .md-card-interactive:hover { border-color: var(--md-outline); }
+
+  /* =========================================================================
+     Verbatim text from a document -- a retrieved passage, or the rolling
+     memory summary.
+
+     One shared treatment, because these are the same KIND of thing: text the
+     app is quoting rather than text the app is saying. A recessed tint plus a
+     hairline reads as "this came from somewhere else" without the heavy grey
+     block that a solid container-highest fill produced on a white panel.
+     ========================================================================= */
+  .md-quote {
+    border-radius: var(--md-shape-md);
+    padding: 0.75rem;
+    background: var(--md-surface-container-low);
+    border: 1px solid var(--md-outline-variant);
+    white-space: pre-wrap;
+  }
+
+  /* =========================================================================
+     Assistant answer.
+
+     Deliberately NOT a card: no background, no border, no shadow. An answer is
+     the primary content of this screen, and the user turn beside it is already
+     a filled bubble -- giving both a container made the page read as a stack
+     of boxes rather than a conversation. The asymmetry is the point: the
+     question is a discrete object, the answer is the page.
+
+     The radius stays because the internal divider and the source chips still
+     need a shape to sit inside on small screens.
+     ========================================================================= */
+  .md-answer {
+    border-radius: var(--md-shape-lg);
+    color: var(--md-on-surface);
+  }
+
+  /* Prose rhythm inside an answer.
+     The renderer emits real <p>/<ul>/<ol>/<h3>, but Tailwind's preflight strips
+     every default margin -- so without these an answer with four paragraphs
+     renders as one unbroken slab, which is exactly how it looked. */
+  .md-answer > * + * { margin-top: 0.85em; }
+  .md-answer p { line-height: 1.65; }
+  .md-answer h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    line-height: 1.4;
+    /* More space above than below, so a heading binds to the text it
+       introduces rather than floating between two blocks. */
+    margin-top: 1.4em;
+    margin-bottom: -0.2em;
+  }
+  .md-answer ul,
+  .md-answer ol { padding-left: 1.4em; }
+  .md-answer ul { list-style: disc; }
+  .md-answer ol { list-style: decimal; }
+  .md-answer li { margin-top: 0.3em; line-height: 1.6; }
+  .md-answer li::marker { color: var(--md-on-surface-variant); }
+
+  /* Tables. Horizontal scrolling is confined to the wrapper so a wide table
+     never drags the rest of the answer sideways with it. */
+  .md-table-wrap {
+    overflow-x: auto;
+    max-width: 100%;
+  }
+  .md-table {
+    border-collapse: collapse;
+    width: 100%;
+    /* Below this a table stops being readable and should scroll instead of
+       compressing its columns into single characters. */
+    min-width: 22rem;
+    font-size: 0.9375rem;
+  }
+  .md-table th,
+  .md-table td {
+    padding: 0.5rem 0.85rem 0.5rem 0;
+    text-align: left;
+    vertical-align: top;
+    border-bottom: 1px solid var(--md-outline-variant);
+  }
+  .md-table th {
+    font-weight: 600;
+    color: var(--md-on-surface-variant);
+    font-size: 0.875rem;
+    white-space: nowrap;
+  }
+  .md-table tr:last-child td { border-bottom: none; }
+
+  /* Inline citation marker: the [5] inside answer prose, made clickable so it
+     opens that passage in the rail. Sized and aligned to sit inside a line of
+     body text without disturbing its rhythm -- hence the em-based padding and
+     the baseline nudge rather than a fixed height. */
+  .md-cite {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.5em;
+    padding: 0 0.35em;
+    margin: 0 0.1em;
+    border: none;
+    border-radius: var(--md-shape-full);
+    background: var(--md-secondary-container);
+    color: var(--md-on-secondary-container);
+    font-size: 0.8em;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.5;
+    vertical-align: 0.08em;
+    cursor: pointer;
+    transition:
+      background var(--md-dur-short) var(--md-ease-standard),
+      color var(--md-dur-short) var(--md-ease-standard);
+  }
+  .md-cite:hover {
+    background: var(--md-primary);
+    color: var(--md-on-primary);
+  }
+  .md-cite[aria-current="true"] {
+    background: var(--md-primary);
+    color: var(--md-on-primary);
+  }
+
+  /* A web citation is a different KIND of source, not a different rank, so
+     it gets the tertiary role rather than a shade of the primary one. The
+     reader needs to know at a glance whether a claim rests on their own
+     document or on a public page they have never seen. */
+  .md-cite-web {
+    background: var(--md-tertiary-container);
+    color: var(--md-on-tertiary-container);
+    text-decoration: none;
+  }
+  .md-cite-web:hover {
+    background: var(--md-tertiary);
+    color: var(--md-on-tertiary);
+  }
+
+  /* Answer prose. Gemma emits markdown-ish text -- blank-line paragraphs,
+     `- ` bullets, `**bold**` -- which `whitespace-pre-wrap` rendered as one
+     undifferentiated block. These rules style the elements the renderer
+     produces; they are scoped so they cannot leak into user-authored chunk
+     text shown elsewhere. */
+  .md-prose > * + * { margin-top: 0.75rem; }
+  .md-prose ul { padding-left: 1.25rem; list-style: disc; }
+  .md-prose ol { padding-left: 1.5rem; list-style: decimal; }
+  .md-prose li + li { margin-top: 0.25rem; }
+  .md-prose strong { font-weight: 600; }
+  .md-prose h3 {
+    font-weight: 600;
+    font-size: 1rem;
+    letter-spacing: 0.00625em;
+  }
+
+  /* =========================================================================
+     Outlined text field. The label floats into the border notch when the
+     field is focused or filled - the most recognisable M3 form element, and
+     the only one needing real DOM structure (see TextField in md.tsx).
+     ========================================================================= */
+  .md-field {
+    position: relative;
+    display: block;
+  }
+  .md-field-input {
+    width: 100%;
+    height: 56px;
+    padding: 1rem;
+    /* Shared with the floating label below, so the notch always matches the
+       field it is cut into. Transparent by default (M3 outlined fields sit on
+       whatever is behind them); the chat composer passes an opaque surface so
+       it reads as a distinct input rather than a hole in the page. */
+    background: var(--md-field-bg, transparent);
+    color: var(--md-on-surface);
+    border: 1px solid var(--md-outline);
+    /* M3's outlined field is a 4px rectangle. Overridable per instance because
+       the chat composer wants to read as a pill -- see --md-field-radius on the
+       chat page. */
+    border-radius: var(--md-field-radius, var(--md-shape-xs));
+    outline: none;
+    transition:
+      border-color var(--md-dur-short) var(--md-ease-standard),
+      box-shadow var(--md-dur-short) var(--md-ease-standard);
+    font-size: 1rem;
+    line-height: 1.5rem;
+    letter-spacing: 0.03125em;
+  }
+  /* The multiline variant, for the chat composer.
+     `height` is driven by JS (scrollHeight) rather than `rows`, so it starts
+     one line tall and grows with the text. That means the fixed 56px above has
+     to go, but min-height keeps an empty field exactly the same size as the
+     single-line one -- otherwise switching the composer to a textarea would
+     visibly shrink it.
+
+     resize:none because the drag handle collides with the pill's rounded
+     corner and duplicates the auto-grow. overflow-y:auto so the scrollbar
+     appears only once the max height is reached. */
+  textarea.md-field-input {
+    /* BLOCK, and this is what aligns the send button.
+
+       A textarea is inline-block by default, so it sits on its parent's text
+       baseline and the block wrapper reserves a few pixels of descender space
+       BELOW it. The wrapper is therefore taller than the field looks, and the
+       composer's `items-end` aligned the FAB to the wrapper's bottom edge --
+       leaving the button sitting low against an input whose visible bottom was
+       several pixels higher. No amount of adjusting the button could fix it;
+       the extra space was never part of the button. */
+    display: block;
+    height: auto;
+    min-height: 56px;
+    max-height: 40vh;
+    resize: none;
+    /* Hidden by default; the resize handler flips it to `auto` only once the
+       box is actually clamped at max-height. Below the cap the element is
+       exactly as tall as its content, so there is nothing to scroll and a
+       track would only paint over the pill's curve. */
+    overflow-y: hidden;
+    /* Reserve the gutter on BOTH sides when a scrollbar does appear, so the
+       text does not shift sideways the moment the field becomes scrollable.
+       Ignored by engines that lack it, which then fall back to the
+       padding-right below. */
+    scrollbar-gutter: stable both-edges;
+    /* Vertically centres a single line against the 56px min-height, and stays
+       sane once wrapped -- 1rem padding plus a 1.5 line-height would sit the
+       first line too high in a grown box. */
+    padding-top: 1.05rem;
+    padding-bottom: 1.05rem;
+    /* Extra room on the right so the thumb, when it appears, sits inside the
+       pill rather than on top of the text or across the corner curve. */
+    padding-right: 1.5rem;
+    line-height: 1.4;
+    /* Transparent until hovered or actively scrolling, matching `.md-scroll`
+       elsewhere. A composer that is usually one line should not carry a
+       permanent scrollbar. */
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+    transition:
+      border-color var(--md-dur-short) var(--md-ease-standard),
+      box-shadow var(--md-dur-short) var(--md-ease-standard),
+      scrollbar-color var(--md-dur-medium) var(--md-ease-standard);
+  }
+  textarea.md-field-input:hover,
+  textarea.md-field-input:focus {
+    scrollbar-color: var(--md-outline-variant) transparent;
+  }
+
+  /* WebKit fallback: Chrome below 121 and Safari ignore the standard
+     properties above. Browsers that support them ignore this block, so the two
+     cannot fight. */
+  textarea.md-field-input::-webkit-scrollbar { width: 10px; }
+  textarea.md-field-input::-webkit-scrollbar-track { background: transparent; }
+  textarea.md-field-input::-webkit-scrollbar-thumb {
+    background-color: transparent;
+    /* Transparent border plus background-clip paints a 4px thumb inside a 10px
+       gutter, keeping it clear of the pill's curve. */
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: var(--md-shape-full);
+    transition: background-color var(--md-dur-medium) var(--md-ease-standard);
+  }
+  textarea.md-field-input:hover::-webkit-scrollbar-thumb,
+  textarea.md-field-input:focus::-webkit-scrollbar-thumb {
+    background-color: var(--md-outline-variant);
+  }
+
+  /* A key cap, for stating a shortcut inline. Deliberately quiet: it sits in
+     the composer's hint line, which should be readable and then ignored. */
+  .md-kbd {
+    display: inline-block;
+    padding: 0.05em 0.4em;
+    border: 1px solid var(--md-outline-variant);
+    border-radius: var(--md-shape-xs);
+    background: var(--md-surface-container-high);
+    color: var(--md-on-surface-variant);
+    font-family: inherit;
+    font-size: 0.92em;
+    /* 1.2, not 1.5. The cap sits in a fixed-height hint line under the
+       composer, and a taller line-height pushed it past that box and into the
+       input above -- which read as the composer jumping when a turn started. */
+    line-height: 1.2;
+  }
+
+  .md-field-input:hover:not(:disabled) { border-color: var(--md-on-surface); }
+  .md-field-input:focus {
+    border-color: var(--md-primary);
+    /* An inset ring, NOT `border-width: 2px`.
+       Growing the border grows the box, which needed a compensating
+       `padding: calc(1rem - 1px)` and shifted the text by a pixel on every
+       focus. Worse on a pill: the thicker stroke reads as a squarer corner
+       because the outer edge stays put while the inner curve tightens.
+       A box-shadow paints on top of the border and cannot change geometry, so
+       the radius and the text position are identical focused or not. */
+    box-shadow: inset 0 0 0 1px var(--md-primary);
+  }
+  .md-field-input:disabled {
+    color: color-mix(in srgb, var(--md-on-surface) 38%, transparent);
+    border-color: color-mix(in srgb, var(--md-on-surface) 12%, transparent);
+    cursor: not-allowed;
+  }
+  .md-field-input::placeholder { color: var(--md-on-surface-variant); }
+  /* Floating label. Sits on the border, with a background matching the field's
+     surface so the outline appears notched. */
+  .md-field-label {
+    position: absolute;
+    /* Overridable: on a pill-shaped field the default 12px puts the floated
+       label on top of the corner curve, where the notch it cuts in the outline
+       lands on empty space instead of the border. Pill fields push it clear of
+       the radius. */
+    left: var(--md-field-label-left, 0.75rem);
+    top: 1rem;
+    padding: 0 0.25rem;
+    color: var(--md-on-surface-variant);
+    pointer-events: none;
+    background: var(--md-field-bg, var(--md-surface-container-low));
+    transition:
+      top var(--md-dur-short) var(--md-ease-standard),
+      font-size var(--md-dur-short) var(--md-ease-standard),
+      color var(--md-dur-short) var(--md-ease-standard);
+    font-size: 1rem;
+    line-height: 1.5rem;
+  }
+  .md-field-input:focus ~ .md-field-label,
+  .md-field-input:not(:placeholder-shown) ~ .md-field-label {
+    top: -0.5rem;
+    font-size: 0.75rem;
+    line-height: 1rem;
+    letter-spacing: 0.03333em;
+  }
+  .md-field-input:focus ~ .md-field-label { color: var(--md-primary); }
+
+  /* =========================================================================
+     Chips. 32px, 8px radius. Assist / filter variants.
+     ========================================================================= */
+  .md-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    height: 32px;
+    padding: 0 1rem;
+    border-radius: var(--md-shape-sm);
+    /* outline-VARIANT, matching cards and panels. Plain `--md-outline` is
+       several steps darker, so a row of chips read as heavier than the card
+       containing them -- backwards, and the main thing that made dense screens
+       look busy. Every hairline in the app is now the same weight. */
+    border: 1px solid var(--md-outline-variant);
+    background: transparent;
+    color: var(--md-on-surface-variant);
+    cursor: pointer;
+    user-select: none;
+    --md-state-color: var(--md-on-surface-variant);
+    transition:
+      background-color var(--md-dur-short) var(--md-ease-standard),
+      border-color var(--md-dur-short) var(--md-ease-standard);
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    font-weight: 500;
+    letter-spacing: 0.00714em;
+  }
+  .md-chip:has(> svg:first-child) { padding-left: 0.5rem; }
+  .md-chip-selected {
+    background: var(--md-secondary-container);
+    border-color: transparent;
+    color: var(--md-on-secondary-container);
+    --md-state-color: var(--md-on-secondary-container);
+  }
+  .md-chip-sm { height: 26px; padding: 0 0.625rem; font-size: 0.75rem; }
+
+  /* =========================================================================
+     Badge / label containers. Not interactive.
+     ========================================================================= */
+  .md-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.125rem 0.5rem;
+    border-radius: var(--md-shape-xs);
+    background: var(--md-surface-container-highest);
+    color: var(--md-on-surface-variant);
+    font-size: 0.6875rem;
+    line-height: 1rem;
+    font-weight: 500;
+    letter-spacing: 0.04545em;
+    text-transform: uppercase;
+  }
+  .md-badge-primary { background: var(--md-primary-container); color: var(--md-on-primary-container); }
+  .md-badge-tertiary { background: var(--md-tertiary-container); color: var(--md-on-tertiary-container); }
+  .md-badge-error { background: var(--md-error-container); color: var(--md-on-error-container); }
+
+  /* =========================================================================
+     Switch. 52x32 track, 24px handle when on (16px when off) - the size
+     change on toggle is part of the spec, not decoration.
+     ========================================================================= */
+  .md-switch {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    width: 52px;
+    height: 32px;
+    border-radius: var(--md-shape-full);
+    border: 2px solid var(--md-outline);
+    background: var(--md-surface-container-highest);
+    cursor: pointer;
+    transition:
+      background-color var(--md-dur-short) var(--md-ease-standard),
+      border-color var(--md-dur-short) var(--md-ease-standard);
+  }
+  .md-switch[data-on="true"] {
+    background: var(--md-primary);
+    border-color: var(--md-primary);
+  }
+  .md-switch::after {
+    content: "";
+    position: absolute;
+    left: 4px;
+    width: 16px;
+    height: 16px;
+    border-radius: var(--md-shape-full);
+    background: var(--md-outline);
+    transition:
+      transform var(--md-dur-short) var(--md-ease-emphasized),
+      width var(--md-dur-short) var(--md-ease-emphasized),
+      height var(--md-dur-short) var(--md-ease-emphasized),
+      background-color var(--md-dur-short) var(--md-ease-standard);
+  }
+  .md-switch[data-on="true"]::after {
+    width: 24px;
+    height: 24px;
+    left: 0;
+    transform: translateX(24px);
+    background: var(--md-on-primary);
+  }
+
+  /* =========================================================================
+     Checkbox. 18px box, 2px radius, inside a 40px state-layer target.
+     ========================================================================= */
+  .md-checkbox {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--md-on-surface-variant);
+    border-radius: 2px;
+    background: transparent;
+    color: var(--md-on-primary);
+    cursor: pointer;
+    transition:
+      background-color var(--md-dur-short) var(--md-ease-standard),
+      border-color var(--md-dur-short) var(--md-ease-standard);
+  }
+  .md-checkbox[data-on="true"] {
+    background: var(--md-primary);
+    border-color: var(--md-primary);
+  }
+
+  /* =========================================================================
+     Segmented button - an actual M3 component, unlike the old .segmented.
+     ========================================================================= */
+  .md-segmented {
+    display: inline-flex;
+    height: 40px;
+    border-radius: var(--md-shape-full);
+    border: 1px solid var(--md-outline);
+    overflow: hidden;
+  }
+  .md-segmented > button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0 0.875rem;
+    border: none;
+    background: transparent;
+    color: var(--md-on-surface);
+    cursor: pointer;
+    --md-state-color: var(--md-on-surface);
+    transition: background-color var(--md-dur-short) var(--md-ease-standard);
+    font-size: 0.875rem;
+    font-weight: 500;
+    letter-spacing: 0.00714em;
+  }
+  .md-segmented > button + button { border-left: 1px solid var(--md-outline); }
+  /* The readout in a stepper: −  value  +.
+     Carries BOTH dividers itself, because `button + button` above cannot draw
+     one against a non-button sibling. No background at all -- a fill here is
+     what made the old version look like it was breaking out of the outline,
+     and a value has nothing to signal by being filled. */
+  .md-segmented > .md-segmented-value {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 2.75rem;
+    padding: 0 0.75rem;
+    border-left: 1px solid var(--md-outline);
+    border-right: 1px solid var(--md-outline);
+    color: var(--md-on-surface);
+    font-size: 0.875rem;
+    font-weight: 500;
+    letter-spacing: 0.00714em;
+    font-variant-numeric: tabular-nums;
+    /* The width no longer changes between 9 and 10, so the two buttons stop
+       shifting sideways as the value crosses a digit boundary. */
+    user-select: none;
+  }
+  .md-segmented > button[data-active="true"] {
+    background: var(--md-secondary-container);
+    color: var(--md-on-secondary-container);
+    --md-state-color: var(--md-on-secondary-container);
+  }
+
+  /* =========================================================================
+     Tabs. Primary tabs with an animated active indicator.
+     ========================================================================= */
+  .md-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--md-outline-variant);
+  }
+  .md-tab {
+    position: relative;
+    /* Explicit centering: these are rendered as buttons, but a div would not
+       centre its text and neither centres vertically without this. */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    flex: 1;
+    height: 48px;
+    padding: 0 1rem;
+    border: none;
+    background: transparent;
+    color: var(--md-on-surface-variant);
+    cursor: pointer;
+    --md-state-color: var(--md-on-surface);
+    transition: color var(--md-dur-short) var(--md-ease-standard);
+    font-size: 0.875rem;
+    font-weight: 500;
+    letter-spacing: 0.00714em;
+  }
+  .md-tab[data-active="true"] { color: var(--md-primary); }
+  .md-tab::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    right: 50%;
+    bottom: 0;
+    height: 3px;
+    border-radius: 3px 3px 0 0;
+    background: var(--md-primary);
+    opacity: 0;
+    transition:
+      left var(--md-dur-medium) var(--md-ease-emphasized),
+      right var(--md-dur-medium) var(--md-ease-emphasized),
+      opacity var(--md-dur-short) var(--md-ease-standard);
+  }
+  .md-tab[data-active="true"]::after { left: 0; right: 0; opacity: 1; }
+
+  /* =========================================================================
+     Progress indicators.
+     ========================================================================= */
+  .md-linear-progress {
+    height: 4px;
+    border-radius: var(--md-shape-full);
+    background: var(--md-secondary-container);
+    overflow: hidden;
+  }
+  /* Indeterminate: a bar that sweeps rather than fills. Animates `transform`
+     only, so it stays on the compositor -- animating `left` or `width` would
+     relayout on every frame. */
+  .md-linear-progress-indeterminate {
+    height: 100%;
+    width: 40%;
+    border-radius: var(--md-shape-full);
+    background: var(--md-primary);
+    animation: md-indeterminate 1.4s var(--md-ease-standard) infinite;
+    will-change: transform;
+  }
+  @keyframes md-indeterminate {
+    /* -100% of its OWN width at the start, 250% at the end, so the bar clears
+       both edges of a track 2.5x its width. */
+    from { transform: translateX(-100%); }
+    to   { transform: translateX(250%); }
+  }
+  /* Motion here is the only signal that work is happening, so reduced-motion
+     keeps a static bar rather than removing the indicator entirely. */
+  @media (prefers-reduced-motion: reduce) {
+    .md-linear-progress-indeterminate {
+      animation: none;
+      width: 100%;
+      opacity: 0.5;
+    }
+  }
+
+  .md-linear-progress > div {
+    height: 100%;
+    border-radius: var(--md-shape-full);
+    background: var(--md-primary);
+    transition: width var(--md-dur-long) var(--md-ease-emphasized-decelerate);
+  }
+
+  /* =========================================================================
+     Navigation drawer - the navy departure. Active item is a pill.
+     ========================================================================= */
+  /* A group of related destinations, drawn as one tinted block.
+
+     The drawer previously ran destinations, the session list and the account
+     row together as one column of items separated only by margin, so "Lab"
+     and the first session title read as neighbours in the same list when they
+     are nothing of the kind. Grouping is what says otherwise: places you go,
+     conversations you have, and you -- three blocks with real space between
+     them rather than a uniform stack. */
+  .md-nav-group {
+    background: var(--md-nav-surface-container);
+    border-radius: var(--md-shape-lg);
+    padding: 0.625rem;
+  }
+  /* Breathing room INSIDE a group as well as between them. Items packed at
+     the default 1px gap read as one striped block rather than three separate
+     destinations, which undoes most of what the grouping was for. */
+  .md-nav-group > * + * {
+    margin-top: 0.25rem;
+  }
+  /* The group already carries the inset, so items inside it sit tighter to
+     the edge than a bare drawer item would. Without this the icon ends up
+     2rem from the drawer edge and the block looks padded twice. */
+  .md-nav-group .md-nav-item {
+    padding: 0 0.75rem;
+  }
+
+  .md-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    height: 56px;
+    padding: 0 1rem;
+    border-radius: var(--md-shape-full);
+    color: var(--md-nav-on-surface-variant);
+    cursor: pointer;
+    --md-state-color: var(--md-nav-on-surface);
+    transition:
+      background-color var(--md-dur-short) var(--md-ease-standard),
+      color var(--md-dur-short) var(--md-ease-standard);
+    font-size: 0.875rem;
+    font-weight: 500;
+    letter-spacing: 0.00714em;
+  }
+  .md-nav-item[data-active="true"] {
+    background: var(--md-primary);
+    color: var(--md-on-primary);
+    --md-state-color: var(--md-on-primary);
+  }
+  /* Dense variant for the session list, which can be long. */
+  .md-nav-item-dense { height: 40px; font-size: 0.8125rem; }
+
+  /* ---------------------------------------------------------------------
+     Overflow menu — M3 "menu", small surface + elevation.
+
+     POSITIONED `fixed` BY THE CALLER, not absolute. An absolutely positioned
+     menu is clipped by the nearest scrolling ancestor, and the drawer's
+     conversation list is exactly that: the menu appeared half-cut, behind the
+     row below it. `fixed` escapes every overflow context without needing a
+     portal.
+     --------------------------------------------------------------------- */
+  .md-menu {
+    position: fixed;
+    z-index: 70;
+    min-width: 10rem;
+    padding: 0.25rem;
+    border-radius: var(--md-shape-sm);
+    background: var(--md-surface-container-high);
+    color: var(--md-on-surface);
+    box-shadow: var(--md-elev-2);
+    border: 1px solid var(--md-outline-variant);
+  }
+  .md-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--md-shape-xs);
+    text-align: left;
+    transition: background 120ms ease;
+  }
+  .md-menu-item:hover,
+  .md-menu-item:focus-visible {
+    background: color-mix(in srgb, var(--md-on-surface) 8%, transparent);
+  }
+  /* The destructive one reads as destructive BEFORE it is clicked, not after.
+     Tinting only on hover would be a warning that arrives with the cursor
+     already on the target. */
+  .md-menu-item-danger { color: var(--md-error); }
+  .md-menu-item-danger:hover,
+  .md-menu-item-danger:focus-visible {
+    background: color-mix(in srgb, var(--md-error) 12%, transparent);
+  }
+
+  /* A round target for an icon-only control. 32px, which is smaller than the
+     48px M3 asks for -- acceptable inside a dense list row, where a full-size
+     target would be taller than the row it sits in. */
+  .md-icon-affordance {
+    display: grid;
+    place-items: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: var(--md-shape-full);
+    opacity: 0;
+    transition: background 120ms ease, opacity 120ms ease;
+  }
+  .md-icon-affordance:hover,
+  .md-icon-affordance:focus-visible,
+  .md-icon-affordance[data-open="true"] {
+    background: color-mix(in srgb, var(--md-on-surface) 10%, transparent);
+    opacity: 1;
+  }
+  /* Revealed on row hover, and ALWAYS on touch -- there is no hover on a
+     phone, so a control that only appears on hover does not exist there. */
+  .md-nav-item:hover .md-icon-affordance,
+  .md-nav-item:focus-within .md-icon-affordance { opacity: 0.7; }
+  @media (hover: none) {
+    .md-icon-affordance { opacity: 0.7; }
+  }
+
+  /* -------------------------------------------------------------------------
+     Icon container — the M3 Expressive nav treatment.
+
+     The icon sits in its own 40px container that is invisible at rest and, on
+     hover, gains a state-layer background, morphs from rounded-square to pill,
+     and scales up slightly. Two details make it feel right rather than merely
+     animated:
+
+     * The container is ALWAYS 40px and always in the layout, so nothing
+       reflows when it appears. Growing the box on hover would shove the label
+       sideways and make the whole row twitch.
+     * `transform` and `background-color` are the only animated properties, so
+       this stays on the compositor. Animating width or border-width here would
+       relayout the drawer on every pointer move.
+
+     The shape morph (12px -> full) is the expressive part: M3 treats corner
+     radius as a channel that carries state, not just decoration.
+     ------------------------------------------------------------------------- */
+  /* The container is 40px around a 24px icon, so without this the icon sits 8px
+     further right than it did and the label 16px further. Scoped with :has()
+     so the dense session rows -- which have no icon -- keep their own inset. */
+  .md-nav-item:has(.md-nav-icon) {
+    padding-left: 0.5rem;
+    gap: 0.5rem;
+  }
+
+  .md-nav-icon {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--md-shape-md);
+    background: transparent;
+    transition:
+      background-color var(--md-dur-short) var(--md-ease-standard),
+      border-radius var(--md-dur-medium) var(--md-ease-emphasized),
+      transform var(--md-dur-medium) var(--md-ease-emphasized);
+  }
+  .md-nav-item:hover .md-nav-icon {
+    background: color-mix(in srgb, var(--md-state-color) 16%, transparent);
+    border-radius: var(--md-shape-full);
+    transform: scale(1.08);
+  }
+  /* Pressed reads as a dip, so the gesture has a bottom rather than just
+     snapping back to rest. */
+  .md-nav-item:active .md-nav-icon { transform: scale(0.96); }
+  /* On the active item the pill already carries the emphasis, so the container
+     only needs to hint -- a full-strength layer on top of --md-primary muddies
+     it. */
+  .md-nav-item[data-active="true"] .md-nav-icon {
+    background: color-mix(in srgb, var(--md-on-primary) 15%, transparent);
+    border-radius: var(--md-shape-full);
+  }
+
+  /* Motion is decoration here; the state-layer colour still communicates
+     hover, so removing the movement loses nothing functional. */
+  @media (prefers-reduced-motion: reduce) {
+    .md-nav-icon { transition: background-color var(--md-dur-short) linear; }
+    .md-nav-item:hover .md-nav-icon,
+    .md-nav-item:active .md-nav-icon { transform: none; }
+  }
+
+  /* =========================================================================
+     Dialog. 28px radius, scrim, and one of the few places depth survives --
+     it is genuinely above the page. White rather than container-high, so it
+     matches every other sheet in the app.
+     ========================================================================= */
+  .md-dialog {
+    border-radius: var(--md-shape-xl);
+    background: var(--md-surface);
+    color: var(--md-on-surface);
+    border: 1px solid var(--md-outline-variant);
+    box-shadow: var(--md-elev-2);
+    padding: 1.5rem;
+    max-width: 22rem;
+    width: 100%;
+  }
+  /* For dialogs whose content is a LIST. 22rem is sized for a question
+     and two buttons; a row with an icon, a name and a line of
+     description wraps three times in it. */
+  .md-dialog-wide { max-width: 34rem; }
+  /* For a dialog whose content is a view rather than a form. Capped at the
+     viewport so it still fits a phone, where it simply becomes full-bleed. */
+  .md-dialog-xl { max-width: min(68rem, 96vw); }
+  .md-scrim {
+    position: fixed;
+    inset: 0;
+    background: var(--md-scrim);
+    opacity: 0.32;
+  }
+
+  /* =========================================================================
+     Misc
+     ========================================================================= */
+  .md-divider { height: 1px; background: var(--md-outline-variant); border: 0; }
+
+  .md-skeleton {
+    border-radius: var(--md-shape-xs);
+    background: color-mix(in srgb, var(--md-on-surface) 9%, transparent);
+    animation: md-pulse 1.6s var(--md-ease-standard) infinite;
+  }
+  @keyframes md-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.45; }
+  }
+
+  .md-link {
+    color: var(--md-primary);
+    cursor: pointer;
+    text-underline-offset: 2px;
+  }
+  .md-link:hover { text-decoration: underline; }
+
+  /* =========================================================================
+     Scroll containers.
+
+     The app scrolls INSIDE panels, not as a document: the shell is exactly one
+     viewport tall, and `<main>` owns the vertical scroll. That is what stops a
+     full-height browser scrollbar running down the right edge of the window,
+     past the fixed rail, for content that only occupies the middle column.
+
+     The bar itself is thin and transparent until it is wanted. `scrollbar-width:
+     thin` still reserves the gutter while the thumb is invisible, so fading it
+     in shifts nothing -- which is the reason for colouring it away rather than
+     hiding it with `overflow: overlay` or a width of 0.
+
+     Visible on hover (you are reaching for it) or while scrolling (you are
+     using it, and the position feedback is worth something). `[data-scrolling]`
+     comes from `useAutoHideScroll`; there is no `:scrolling` pseudo-class.
+     ========================================================================= */
+  .md-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+    transition: scrollbar-color var(--md-dur-medium) var(--md-ease-standard);
+  }
+  .md-scroll:hover,
+  .md-scroll[data-scrolling="true"] {
+    scrollbar-color: var(--md-outline-variant) transparent;
+  }
+
+  /* WebKit fallback, for Chrome below 121 and Safari, which do not support the
+     standard properties above. Browsers that DO support them ignore this block
+     entirely, so the two cannot fight. */
+  .md-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+  .md-scroll::-webkit-scrollbar-track { background: transparent; }
+  .md-scroll::-webkit-scrollbar-thumb {
+    /* The transparent border plus background-clip is what makes a 10px-wide
+       scrollbar paint a 4px-wide thumb with breathing room either side. */
+    background-color: transparent;
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: var(--md-shape-full);
+    transition: background-color var(--md-dur-medium) var(--md-ease-standard);
+  }
+  .md-scroll:hover::-webkit-scrollbar-thumb,
+  .md-scroll[data-scrolling="true"]::-webkit-scrollbar-thumb {
+    background-color: var(--md-outline-variant);
+  }
+
+  /* Kept as an alias: several places already ask for `scroll-thin`, and they
+     all want exactly this behaviour. */
+  .scroll-thin {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+    transition: scrollbar-color var(--md-dur-medium) var(--md-ease-standard);
+    /* RESERVE THE TRACK, always.
+       Without this the scrollbar is drawn OVER the content at the right edge,
+       and in the drawer that edge is where the collapse chevrons and item
+       counts live -- so the bar sat on top of them. `stable` keeps the gutter
+       whether or not the bar is visible, which also means content does not
+       shift sideways the moment a list grows long enough to scroll. */
+    scrollbar-gutter: stable;
+  }
+  .scroll-thin:hover {
+    scrollbar-color: var(--md-outline-variant) transparent;
+  }
+}
+
+/* Ripple. Expands from the pointer position and fades; the state layer handles
+   hover/focus, this handles the press. */
+/* THE PACING LIVES IN THE KEYFRAMES, NOT IN AN EASING FUNCTION.
+
+   Both easings tried here made a longer duration do almost nothing visible.
+   `standard` and `emphasized-decelerate` are both FRONT-LOADED -- they cover
+   most of their travel in the first fraction of the time and spend the rest
+   crawling the last few percent. Against a scale that is already visually
+   compressed at the end (going 0.9 -> 1.0 barely reads as movement) and an
+   opacity that has nearly finished fading, the result is a ripple that looks
+   the same at 800ms as at 450ms: it snaps out, then an invisible tail runs
+   for half a second.
+
+   So the timing function is `linear` and the shape is expressed as explicit
+   stops. Now duration means what it says, and the opacity is held high
+   through the first half instead of fading in step with the expansion -- the
+   spread stays VISIBLE for the whole time it is running.
+
+   That visibility is why the number that finally felt right is SHORTER than
+   the ones that felt too fast: once the expansion actually reads, 400ms of it
+   is plenty, where 450ms of front-loaded easing read as an instant snap. The
+   fix was never the duration. */
+@keyframes md-ripple {
+  0% { transform: scale(0); opacity: 0.36; }
+  40% { transform: scale(0.5); opacity: 0.32; }
+  70% { transform: scale(0.78); opacity: 0.22; }
+  100% { transform: scale(1); opacity: 0; }
+}
+/* The clip layer the ripple lives in, parked on <body> so it survives the
+   pressed element unmounting. `useRipple` copies the host's rect, radius and
+   colour onto it.
+
+   `fixed`, because the rect it is given is a viewport rect. It does not follow
+   scrolling, which is correct at this duration -- the layer is gone long
+   before a scroll could move it noticeably.
+
+   ABOVE EVERYTHING, deliberately. The app stacks at 30 (app bar, scrim), 40
+   (drawer) and 50 (dialog), and anything lower would hide the ripple behind
+   the very surface it was pressed on -- a drawer nav item at z-40 with its
+   ripple at z-20 shows nothing at all.
+
+   Painting on top is safe here rather than merely expedient: the layer is
+   always positioned exactly over the element that was just pressed, and an
+   element that can be pressed is by definition not covered. */
+.md-ripple-layer {
+  position: fixed;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 60;
+}
+.md-ripple-span {
+  position: absolute;
+  border-radius: 50%;
+  background: currentColor;
+  pointer-events: none;
+  /* THE ONLY PLACE A RIPPLE DURATION IS SET. Change --md-ripple-duration in
+     :root; nothing else should hardcode a number here.
+
+     Worth stating because a ripple can LOOK slower or faster per screen
+     without any of this changing: the span is a child of the pressed element,
+     so if that element unmounts the animation is cut off wherever it had got
+     to. A row that navigates away is the case where that shows -- see
+     `useRipple`. */
+  animation: md-ripple var(--md-ripple-duration) linear forwards;
+  z-index: 0;
+}
